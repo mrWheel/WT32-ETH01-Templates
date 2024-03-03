@@ -153,23 +153,23 @@ void connectEthernet()
 
 
 //-----------------------------------------------------------------------------------
-void setTimezone(String timezone)
+void setTimezone(const char *timezone)
 {
-  Serial.printf("setTimezone():  Setting Timezone to %s\n\n",timezone.c_str());
+  Serial.printf("setTimezone():  Setting Timezone to %s\n\n",timezone);
   //-- Now adjust the TZ.  Clock settings are adjusted to show the new local time
-  setenv("TZ",timezone.c_str(),1);  
+  setenv("TZ", timezone, 1);  
   tzset();
 
 } //  setTimezone()
 
 //-----------------------------------------------------------------------------------
-bool setupTime(String timezone)
+bool setupTime(const char *timezone)
 {
   struct tm timeinfo;
 
-  Serial.printf("setupTime(): Setting up time for [%s]\r\n", timezone.c_str());
+  Serial.printf("setupTime(): Setting up time for [%s]\r\n", timezone);
   //-- First connect to NTP server, with 0 TZ offset
-  configTime(0, 0, "pool.ntp.org");    
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov", "time.google.com"); 
   if(!getLocalTime(&timeinfo))
   {
     Serial.println("setupTime(): Failed to obtain time");
@@ -187,14 +187,31 @@ void printTime(bool all=false)
   time_t now;
   struct tm timeinfo;
 
+    if (!timeSet)
+    { 
+      if (setupTime(TZ_Europe_Amsterdam))
+      {   
+        timeSet = true;
+        printTime(true);
+      }
+      all = true;
+    }
+
   time(&now);
-  Serial.printf("printTime(): Now: %ld\n", now);
+  if (all)
+  {
+    Serial.printf("printTime(): Now: %ld\n", now);
+
+    gmtime_r(&now, &timeinfo);
+    Serial.printf("printTime():        GMT [%04d-%02d-%02d][%02d:%02d:%02d]\r\n"
+                        , timeinfo.tm_year+1900, timeinfo.tm_mon+1, timeinfo.tm_mday
+                        , timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+  }
 
   localtime_r(&now, &timeinfo);
-  Serial.println(&timeinfo, "printTime(): Local Time: %A, %B %d %Y %H:%M:%S Zone: %Z (%z)\r\n");
-
-  gmtime_r(&now, &timeinfo);
-  Serial.println(&timeinfo, "printTime():        GMT: %A, %B %d %Y %H:%M:%S Zone: %Z (%z)");
+  Serial.printf("\r\nprintTime(): Local Time [%04d-%02d-%02d][%02d:%02d:%02d]\r\n\n"
+                      , timeinfo.tm_year+1900, timeinfo.tm_mon+1, timeinfo.tm_mday
+                      , timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
 
 } //  printTime()
 
@@ -224,6 +241,10 @@ void startMDNS(const char *Hostname)
 */
 void setup() 
 {
+  //-- switch off WiFi tranceiver
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+
   Serial.begin(115200);
   Serial.println("Let's begin...");
 
@@ -239,6 +260,8 @@ void setup()
     printTime(true);
   }
 
+  delay(5000);
+
   //-- Set the client to be insecure so we can make requests to our https server.
   client.setInsecure();
 
@@ -251,24 +274,14 @@ void setup()
 */
 void loop() 
 {
-  if ((requestCounter % 10) == 0) 
-  {  
-    if (timeSet)
-    {
-      printTime(true);
-    }
-    else
-    { 
-      if (setupTime(TZ_Europe_Amsterdam))
-      {   
-        timeSet = true;
-        printTime(true);
-      }
-    }
-  }
-
   //-- Increase the request counter and create a new product payload.
   requestCounter++;
+
+  if ((requestCounter % 5) == 0) 
+  {  
+    printTime();
+  }
+
   snprintf(name, sizeof(name),"Artikel #%d", requestCounter);
   int size = random(100);
   int available = random(2);

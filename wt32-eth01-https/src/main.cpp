@@ -15,35 +15,36 @@
 
 //////////////////////////////////////////////////
 
-// For WT32_ETH01
+//-- For WT32_ETH01
 #define DEBUG_ETHERNET_WEBSERVER_PORT       Serial
 
-// Debug Level from 0 to 4
+//-- Debug Level from 0 to 4
 #define _ETHERNET_WEBSERVER_LOGLEVEL_       3
 
 #define TZ_Europe_Amsterdam PSTR("CET-1CEST,M3.5.0,M10.5.0/3")
 
 #include <WebServer_WT32_ETH01.h>
 
-// Select the IP address according to your local network
+//-- Select the IP address according to your local network
 //--->IPAddress myIP(192, 168, 12, 232);
 //--->IPAddress myGW(192, 168, 12, 1);
 //--->IPAddress mySN(255, 255, 255, 0);
 
-// Google DNS Server IP
+//-- Google DNS Server IP
 //--->IPAddress myDNS(8, 8, 8, 8);
 
 //////////////////////////////////////////////////
 
-// Includes for the server
+//-- Includes for the server
 #include <HTTPSServer.hpp>
 #include <Ethernet.h>
 #include <ESP_SSLClient.h>
 #include <HTTPRequest.hpp>
 #include <HTTPResponse.hpp>
-#include <ESPmDNS.h>        // part of ESP32 Core https://github.com/ESP32/Arduino
+//-- part of ESP32 Core https://github.com/ESP32/Arduino
+#include <ESPmDNS.h>        
 
-// The HTTPS Server comes in a separate namespace. For easier use, include it here.
+//-- The HTTPS Server comes in a separate namespace. For easier use, include it here.
 using namespace httpsserver;
 
 SSLCert * cert;
@@ -52,48 +53,72 @@ HTTPSServer * secureServer;
 ESP_SSLClient ssl_client;
 EthernetClient basic_client;
 
-uint32_t nextTime;
+uint32_t  nextTime;
+bool      timeSet = false;
 
 
-//---------------------------------------------------------------------------------------------
-void setTimezone(String timezone)
+//-----------------------------------------------------------------------------------
+void setTimezone(const char *timezone)
 {
-  Serial.printf("  Setting Timezone to %s\n",timezone.c_str());
-  setenv("TZ",timezone.c_str(),1);  //  Now adjust the TZ.  Clock settings are adjusted to show the new local time
+  Serial.printf("setTimezone():  Setting Timezone to %s\n\n",timezone);
+  //-- Now adjust the TZ.  Clock settings are adjusted to show the new local time
+  setenv("TZ", timezone, 1);  
   tzset();
-}
 
-//---------------------------------------------------------------------------------------------
-void setupTime(String timezone)
+} //  setTimezone()
+
+//-----------------------------------------------------------------------------------
+bool setupTime(const char *timezone)
 {
   struct tm timeinfo;
 
-  Serial.println("Setting up time");
-  configTime(0, 0, "pool.ntp.org");    // First connect to NTP server, with 0 TZ offset
+  Serial.printf("setupTime(): Setting up time for [%s]\r\n", timezone);
+  //-- First connect to NTP server, with 0 TZ offset
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov", "time.google.com"); 
   if(!getLocalTime(&timeinfo))
   {
-    Serial.println("  Failed to obtain time");
-    return;
+    Serial.println("setupTime(): Failed to obtain time");
+    return false;
   }
-  Serial.println("  Got the time from NTP");
+  Serial.println("setupTime(): Got the time from NTP");
   setTimezone(timezone);
-}
+  return true;
 
-//---------------------------------------------------------------------------------------------
-void printLocalTime(bool all=false)
+} //  setupTime()
+
+//-----------------------------------------------------------------------------------
+void printTime(bool all=false)
 {
   time_t now;
   struct tm timeinfo;
 
-  time(&now);
-  if (all) {Serial.printf("Now: %ld\n", now);}
+  if (!timeSet)
+  { 
+    if (setupTime(TZ_Europe_Amsterdam))
+    {   
+      timeSet = true;
+      printTime(true);
+    }
+    all = true;
+  }
 
-  gmtime_r(&now, &timeinfo);
-  if (all) {Serial.println(&timeinfo, "GMT: %A, %B %d %Y %H:%M:%S Zone: %Z (%z)");}
+  time(&now);
+  if (all)
+  {
+    Serial.printf("printTime(): Now: %ld\n", now);
+
+    gmtime_r(&now, &timeinfo);
+    Serial.printf("printTime():        GMT [%04d-%02d-%02d][%02d:%02d:%02d]\r\n"
+                        , timeinfo.tm_year+1900, timeinfo.tm_mon+1, timeinfo.tm_mday
+                        , timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+  }
 
   localtime_r(&now, &timeinfo);
-  Serial.println(&timeinfo, "Local Time: %A, %B %d %Y %H:%M:%S Zone: %Z (%z)");
-}
+  Serial.printf("\r\nprintTime(): Local Time [%04d-%02d-%02d][%02d:%02d:%02d]\r\n\n"
+                      , timeinfo.tm_year+1900, timeinfo.tm_mon+1, timeinfo.tm_mday
+                      , timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+
+} //  printTime()
 
 
 //---------------------------------------------------------------------------------------------
@@ -115,24 +140,24 @@ void startMDNS(const char *Hostname)
 
 } // startMDNS()
 
-// Handler functions for the various URLs on the server
+//-- Handler functions for the various URLs on the server
 
 //---------------------------------------------------------------------------------------------
 void handleRoot(HTTPRequest * req, HTTPResponse * res)
 {
-  // Status code is 200 OK by default.
-  // We want to deliver a simple HTML page, so we send a corresponding content type:
+  //-- Status code is 200 OK by default.
+  //-- We want to deliver a simple HTML page, so we send a corresponding content type:
   res->setHeader("Content-Type", "text/html");
 
-  // The response implements the Print interface, so you can use it just like
-  // you would write to Serial etc.
+  //-- The response implements the Print interface, so you can use it just like
+  //-- you would write to Serial etc.
   res->println("<!DOCTYPE html>");
   res->println("<html>");
   res->println("<head><title>Hello World!</title></head>");
   res->println("<body>");
   res->println("<h1>Hello World!</h1>");
   res->print("<p>Your server is running for ");
-  // A bit of dynamic data: Show the uptime
+  //-- A bit of dynamic data: Show the uptime
   res->print((int)(millis() / 1000), DEC);
   res->println(" seconds.</p>");
   res->println("</body>");
@@ -142,18 +167,18 @@ void handleRoot(HTTPRequest * req, HTTPResponse * res)
 //---------------------------------------------------------------------------------------------
 void handle404(HTTPRequest * req, HTTPResponse * res)
 {
-  // Discard request body, if we received any
-  // We do this, as this is the default node and may also server POST/PUT requests
+  //-- Discard request body, if we received any
+  //-- We do this, as this is the default node and may also server POST/PUT requests
   req->discardRequestBody();
 
-  // Set the response status
+  //-- Set the response status
   res->setStatusCode(404);
   res->setStatusText("Not Found");
 
-  // Set content type of the response
+  //-- Set content type of the response
   res->setHeader("Content-Type", "text/html");
 
-  // Write a tiny HTTP page
+  //-- Write a tiny HTTP page
   res->println("<!DOCTYPE html>");
   res->println("<html>");
   res->println("<head><title>Not Found</title></head>");
@@ -165,7 +190,11 @@ void handle404(HTTPRequest * req, HTTPResponse * res)
 //---------------------------------------------------------------------------------------------
 void setup()
 {
-  // For logging
+  //-- switch off WiFi tranceiver
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+
+  //-- For logging
   Serial.begin(115200);
   delay(3000); // wait for the monitor to reconnect after uploading.
 
@@ -176,18 +205,18 @@ void setup()
   Serial.println("Creating a new self-signed certificate.");
   Serial.println("This may take up to a minute, so be patient ;-)");
 
-  // First, we create an empty certificate:
+  //-- First, we create an empty certificate:
   cert = new SSLCert();
 
-  // Now, we use the function createSelfSignedCert to create private key and certificate.
-  // The function takes the following paramters:
-  // - Key size: 1024 or 2048 bit should be fine here, 4096 on the ESP might be "paranoid mode"
-  //   (in generel: shorter key = faster but less secure)
-  // - Distinguished name: The name of the host as used in certificates.
-  //   If you want to run your own DNS, the part after CN (Common Name) should match the DNS
-  //   entry pointing to your WT32_ETH01. You can try to insert an IP there, but that's not really good style.
-  // - Dates for certificate validity (optional, default is 2022-2032, both included)
-  //   Format is YYYYMMDDhhmmss
+  //-- Now, we use the function createSelfSignedCert to create private key and certificate.
+  //-- The function takes the following paramters:
+  //   - Key size: 1024 or 2048 bit should be fine here, 4096 on the ESP might be "paranoid mode"
+  //     (in generel: shorter key = faster but less secure)
+  //   - Distinguished name: The name of the host as used in certificates.
+  //     If you want to run your own DNS, the part after CN (Common Name) should match the DNS
+  //     entry pointing to your WT32_ETH01. You can try to insert an IP there, but that's not really good style.
+  //   - Dates for certificate validity (optional, default is 2022-2032, both included)
+  //     Format is YYYYMMDDhhmmss
   int createCertResult = createSelfSignedCert(
                            *cert,
                            KEYSIZE_2048,
@@ -196,7 +225,7 @@ void setup()
                            "20330101000000"
                          );
 
-  // Now check if creating that worked
+  //-- Now check if creating that worked
   if (createCertResult != 0)
   {
     Serial.printf("Cerating certificate failed. Error Code = 0x%02X, check SSLCert.hpp for details", createCertResult);
@@ -226,20 +255,20 @@ void setup()
   // gets a hand on your hardware. You should decide if that's a relevant risk for you and apply countermeasures like flash
   // encryption if neccessary
 
-  // We can now use the new certificate to setup our server as usual.
+  //-- We can now use the new certificate to setup our server as usual.
   secureServer = new HTTPSServer(cert);
 
   ///////////////////////////////////////////////
 
-  // To be called before ETH.begin()
+  //-- To be called before ETH.begin()
   WT32_ETH01_onEvent();
 
-  //bool begin(uint8_t phy_addr=ETH_PHY_ADDR, int power=ETH_PHY_POWER, int mdc=ETH_PHY_MDC, int mdio=ETH_PHY_MDIO,
-  //           eth_phy_type_t type=ETH_PHY_TYPE, eth_clock_mode_t clk_mode=ETH_CLK_MODE);
+  //--bool begin(uint8_t phy_addr=ETH_PHY_ADDR, int power=ETH_PHY_POWER, int mdc=ETH_PHY_MDC, int mdio=ETH_PHY_MDIO,
+  //--           eth_phy_type_t type=ETH_PHY_TYPE, eth_clock_mode_t clk_mode=ETH_CLK_MODE);
   //ETH.begin(ETH_PHY_ADDR, ETH_PHY_POWER, ETH_PHY_MDC, ETH_PHY_MDIO, ETH_PHY_TYPE, ETH_CLK_MODE);
   ETH.begin(ETH_PHY_ADDR, ETH_PHY_POWER);
 
-  // Static IP, leave without this line to get IP via DHCP
+  //-- Static IP, leave without this line to get IP via DHCP
   //bool config(IPAddress local_ip, IPAddress gateway, IPAddress subnet, IPAddress dns1 = 0, IPAddress dns2 = 0);
   //----> ETH.config(myIP, myGW, mySN, myDNS);
 
@@ -248,22 +277,23 @@ void setup()
   Serial.print(F("HTTP EthernetWebServer is @ IP : "));
   Serial.println(ETH.localIP());
 
-  setupTime(TZ_Europe_Amsterdam);   // Set for Amsterdam/NL
-  printLocalTime(true);
+  //-- Set for Amsterdam/NL
+  timeSet = setupTime(TZ_Europe_Amsterdam);   
+  printTime(true);
   nextTime = millis()+30000;
   
   startMDNS("myesp32");
 
   ///////////////////////////////////////////////
 
-  // For every resource available on the server, we need to create a ResourceNode
-  // The ResourceNode links URL and HTTP method to a handler function
+  //-- For every resource available on the server, we need to create a ResourceNode
+  //-- The ResourceNode links URL and HTTP method to a handler function
   ResourceNode * nodeRoot    = new ResourceNode("/", "GET", &handleRoot);
   ResourceNode * node404     = new ResourceNode("", "GET", &handle404);
 
-  // Add the root node to the server
+  //-- Add the root node to the server
   secureServer->registerNode(nodeRoot);
-  // Add the 404 not found node to the server.
+  //-- Add the 404 not found node to the server.
   secureServer->setDefaultNode(node404);
 
   Serial.println("Starting server...");
@@ -279,15 +309,15 @@ void setup()
 //---------------------------------------------------------------------------------------------
 void loop()
 {
-  // This call will let the server do its work
+  //-- This call will let the server do its work
   secureServer->loop();
 
-  // Other code would go here...
+  //-- Other code would go here...
   delay(1);
 
   if (millis() > nextTime)
   {
     nextTime = millis() + 60000;
-    printLocalTime();
+    printTime();
   }
 }
